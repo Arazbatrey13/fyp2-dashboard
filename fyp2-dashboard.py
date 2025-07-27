@@ -1,4 +1,3 @@
-
 import streamlit as st
 import yfinance as yf
 import numpy as np
@@ -10,8 +9,14 @@ from sklearn.svm import SVR
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.ensemble import RandomForestRegressor
 from xgboost import XGBRegressor
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Conv1D, MaxPooling1D, LSTM, Dense
+
+# ✅ Safe TensorFlow import
+try:
+    from tensorflow.keras.models import Sequential
+    from tensorflow.keras.layers import Conv1D, MaxPooling1D, LSTM, Dense
+except ImportError:
+    st.error("❌ TensorFlow is not installed. Please add 'tensorflow-cpu==2.11.0' in requirements.txt.")
+    st.stop()
 
 st.set_page_config(page_title="Stock Forecasting", layout="wide")
 st.title("📈 Stock Forecasting Web App")
@@ -23,11 +28,10 @@ model_choice = st.sidebar.selectbox("Choose Model", ["SVR", "KNN", "Random Fores
 seq_len = st.sidebar.slider("Sequence Length (CNN+LSTM)", 30, 100, 60, 10)
 epochs = st.sidebar.slider("Epochs (CNN+LSTM)", 5, 50, 10, 5)
 
-# Load data with safe handling
+# Load data
 st.write(f"Fetching **{stock_choice}** data...")
 df_raw = yf.download(stock_choice, start='2010-01-01', end='2020-12-31')
 
-# Handle multi-index or flat structure
 if isinstance(df_raw.columns, pd.MultiIndex):
     try:
         df = df_raw[stock_choice][['Close']].copy()
@@ -45,7 +49,7 @@ else:
 df = df.dropna()
 st.line_chart(df)
 
-# Feature engineering (for classical models)
+# Classical features
 df['Target'] = df['Close'].shift(-1)
 df['MA5'] = df['Close'].rolling(5).mean()
 df = df.dropna()
@@ -63,15 +67,16 @@ X_test_scaled = scaler_cls.transform(X_test_cls)
 def directional_acc(y_true, y_pred, baseline):
     return np.mean(np.where(y_true > baseline, 1, 0) == np.where(y_pred > baseline, 1, 0)) * 100
 
-# For CNN+LSTM
+# CNN+LSTM data
 scaler_lstm = MinMaxScaler()
 scaled_data = scaler_lstm.fit_transform(df[['Close']])
 X_lstm, y_lstm = [], []
 for i in range(seq_len, len(scaled_data)):
     X_lstm.append(scaled_data[i-seq_len:i, 0])
     y_lstm.append(scaled_data[i, 0])
-X_lstm, y_lstm = np.array(X_lstm), np.array(y_lstm)
-X_lstm = X_lstm.reshape((X_lstm.shape[0], X_lstm.shape[1], 1))
+X_lstm = np.array(X_lstm).reshape(-1, seq_len, 1)
+y_lstm = np.array(y_lstm)
+
 split_lstm = int(0.8 * len(X_lstm))
 X_train_lstm, X_test_lstm = X_lstm[:split_lstm], X_lstm[split_lstm:]
 y_train_lstm, y_test_lstm = y_lstm[:split_lstm], y_lstm[split_lstm:]
@@ -126,7 +131,7 @@ else:
     st.pyplot(fig)
     st.stop()
 
-# Classical model results
+# Classical model metrics
 mse = mean_squared_error(y_test_cls, pred)
 mae = mean_absolute_error(y_test_cls, pred)
 mape = np.mean(np.abs((y_test_cls - pred) / y_test_cls)) * 100
